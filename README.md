@@ -1,5 +1,7 @@
 # Token Radar — radar-9 (make.fun token-radar-01, profile B / @roni-rockabilly)
 [![make.fun · token-radar-01](https://make.fun/badge/token-radar-01.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
+[![rank](https://make.fun/badge/token-radar-01/anjay1933/token-radar-01-roni-v5/rank.svg)](https://make.fun/bounty/token-radar-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
+[![reward](https://make.fun/badge/token-radar-01/anjay1933/token-radar-01-roni-v5/reward.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
 
 A token-launch radar: 198 pre-token protocols ranked by an implied value derived
 only from the sealed DefiLlama snapshot, plus launch odds, conformal intervals,
