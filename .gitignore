@@ -1,0 +1,9 @@
+# radar-9 — generated / local-only, never committed
+out/
+input/
+analysis/
+tests/.tmp/
+kit.tar.gz
+token-radar-01-kit/
+*.log
+.DS_Store

@@ -1,14 +1,12 @@
-# Token Radar — radar-7 (make.fun token-radar-01, profile B / @roni-rockabilly)
+# Token Radar — radar-9 (make.fun token-radar-01, profile B / @roni-rockabilly)
 [![make.fun · token-radar-01](https://make.fun/badge/token-radar-01.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
-[![rank](https://make.fun/badge/token-radar-01/anjay1933/token-radar-01-roni-v5/rank.svg)](https://make.fun/bounty/token-radar-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
-[![reward](https://make.fun/badge/token-radar-01/anjay1933/token-radar-01-roni-v5/reward.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
 
 A token-launch radar: 198 pre-token protocols ranked by an implied value derived
 only from the sealed DefiLlama snapshot, plus launch odds, conformal intervals,
 and costed, deposit-sized farm plans. Light paper/navy/amber dashboard, written
 from scratch for this entry.
 
-## Model radar-7
+## Model radar-9
 
 ```text
 log10(V) = 4.1516 + 0.3780·log10(TVL_fwd) − 0.0737·ln(chains)
@@ -25,7 +23,7 @@ raw figures and shows whether it matches the board.
 - Odds Brier: LOO 0.1890 / 10-fold 0.1868 / walk-forward 0.2093 (base 0.248/0.247/0.352)
 - Interval coverage: LOO P10–P90 82.6%; honest walk-forward 65.7% (admitted)
 - LOO P25–P75 coverage 50.0% vs the #1 entry's 57% (admitted shortfall)
-- Gauntlet 34/34, dashboard smoke 27/27, runtime ~3.2s
+- Gauntlet 34/34, dashboard smoke 27/27, runtime ~3.1s
 
 ## Board
 
@@ -44,8 +42,9 @@ MAKEFUN_OUTPUT_DIR=out node main.ts --input <snapshot.json>
 ```
 
 Node 22+, standard library only. Two runs write byte-identical output.
-Screenshots (1440×900) are taken from the real running dashboard with headless
-Chromium; see `out/dossier.json` for the full evidence record.
+Screenshots (1440×900) are PIL renderings of the real built data in V1; FASE 4
+replaces them with true browser captures — see `SCREENSHOTS.md`.
+See `out/dossier.json` for the full evidence record.
 
 ## Files
 
@@ -54,5 +53,5 @@ Chromium; see `out/dossier.json` for the full evidence record.
 - `dashboard/` — `index.html`, `app.js`, `style.css` (no network, no framework).
 - `input/snapshot.json` — the sealed DefiLlama snapshot (758 protocols).
 - `vendor/makefun-board.ts` — make.fun's dossier library, unmodified (kit file).
-- `out/dossier.json` — the graded artifact (374,956 bytes).
+- `out/dossier.json` — the graded artifact (447,388 bytes).
 - `tests/` — `gauntlet.mjs` (34/34), `dashboard-smoke.mjs` (27/27).

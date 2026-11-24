@@ -1,5 +1,4 @@
-/* Radar-7 — ink-navy + amber. Own palette: deep navy paper, amber signal,
-   pale parchment rows. No top-10 palette copied. */
+/* Radar-9 — ink-navy + amber. Own palette: deep navy paper, amber signal. */
 :root{
   --navy:#0e1a2b; --navy2:#13263f; --ink:#10233a; --paper:#f4efe4; --card:#fbf8ef;
   --amber:#e8a317; --amber-d:#b97f0b; --line:#d8cfb8; --line-d:#2a4258;
@@ -10,7 +9,6 @@
 *{box-sizing:border-box}
 html{background:var(--navy)}
 body{margin:0;font-family:var(--sans);color:var(--txt);background:var(--paper);line-height:1.45}
-.skip{position:absolute;left:-9999px}
 a{color:#0b5fa5}
 header.hero{background:var(--navy);color:#eef3f7;padding:26px 28px 20px;border-bottom:4px solid var(--amber)}
 header.hero h1{margin:0;font-size:30px;letter-spacing:.2px}
@@ -19,7 +17,7 @@ header.hero p{margin:6px 0 0;color:#b9c9d6;max-width:980px}
 header.hero .meta{margin-top:10px;font-size:12.5px;color:#8fa6b8}
 header.hero .meta b{color:#e8ecf0}
 .wrap{max-width:1240px;margin:0 auto;padding:0 20px 40px}
-.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin:16px 0}
+.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:16px 0}
 .kpi{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--amber);padding:10px 12px;border-radius:6px}
 .kpi h3{margin:0 0 4px;font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--mut)}
 .kpi .v{font-size:21px;font-weight:700;color:var(--ink)}
@@ -65,5 +63,5 @@ tr:hover td{background:#f3ecd4}
 .deriv b{color:var(--amber)}
 .mini{font-size:12.5px;color:var(--mut)}
 .foot{font-size:12.5px;color:var(--mut);border-top:1px solid var(--line);padding-top:12px}
-.warn{background:#fdf3d7;border:1px solid var(--amber);border-radius:4px;padding:8px 10px;font-size:13px;margin:8px 0}
 @media(max-width:900px){.kpis{grid-template-columns:repeat(2,1fr)}header.hero h1{font-size:23px}}
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:12px}

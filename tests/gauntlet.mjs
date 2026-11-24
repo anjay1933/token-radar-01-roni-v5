@@ -1,4 +1,4 @@
-// Radar-7 test gauntlet. Runs main.ts against the real snapshot, corrupted
+// Radar-9 test gauntlet. Runs main.ts against the real snapshot, corrupted
 // inputs, edge cases, determinism (two runs byte-identical) and the kit gate
 // limits. Every test prints PASS/FAIL with the reason. Exit 0 iff all pass.
 //

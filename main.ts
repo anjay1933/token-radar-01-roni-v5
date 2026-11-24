@@ -1,4 +1,4 @@
-// radar-7 (token-radar-01, roni-rockabilly) — entry program.
+// radar-9 (token-radar-01, roni-rockabilly) — entry program.
 // Node 22, standard library only, no network, deterministic.
 //
 // Reads the sealed snapshot, runs the pipeline in lib/model.ts
@@ -39,7 +39,7 @@ function arg(name: string, fallback: string): string {
 const inputArg = arg('input', '/input');
 const inputFile = inputArg.endsWith('.json') ? inputArg : join(inputArg, 'snapshot.json');
 if (!existsSync(inputFile)) {
-  process.stderr.write(`radar-7: no snapshot at ${inputFile}: pass --input <snapshot.json|directory> or mount the sealed /input\n`);
+  process.stderr.write(`radar-9: no snapshot at ${inputFile}: pass --input <snapshot.json|directory> or mount the sealed /input\n`);
   process.exit(2);
 }
 const out = arg('output', process.env.MAKEFUN_OUTPUT_DIR ?? '/output');
@@ -52,7 +52,7 @@ const snapshot = deriveAll(readFileSync(inputFile, 'utf8'));
 const { board, radar } = buildRadar(snapshot, checksum);
 const issue = boardIssue(board, snapshot);
 if (issue !== null) {
-  process.stderr.write(`radar-7: the model wrote a board the gate refuses: ${issue}\n`);
+  process.stderr.write(`radar-9: the model wrote a board the gate refuses: ${issue}\n`);
   process.exit(1);
 }
 
@@ -77,12 +77,12 @@ function copyFiles(from: string, to: string): string[] {
 copyFiles(join(here, 'dashboard'), join(out, 'dashboard'));
 const shots = copyFiles(join(here, 'screenshots'), join(out, 'screenshots'));
 if (shots.length < 3) {
-  process.stderr.write(`radar-7: screenshots/ holds ${shots.length} image${shots.length === 1 ? '' : 's'}: hand in 3, the board, a detail view and a filtered view\n`);
+  process.stderr.write(`radar-9: screenshots/ holds ${shots.length} image${shots.length === 1 ? '' : 's'}: hand in 3, the board, a detail view and a filtered view\n`);
   process.exit(1);
 }
 for (const name of shots) {
   if (!IMAGE_NAME.test(name)) {
-    process.stderr.write(`radar-7: screenshots/${name}: a name is letters, digits and . _ -, 1 to 128 characters\n`);
+    process.stderr.write(`radar-9: screenshots/${name}: a name is letters, digits and . _ -, 1 to 128 characters\n`);
     process.exit(1);
   }
 }
@@ -93,7 +93,7 @@ const secs = (Date.now() - t0) / 1000;
 const verdicts = { FARM: 0, MARGINAL: 0, SKIP: 0 };
 for (const r of board) verdicts[r.verdict] += 1;
 process.stdout.write(
-  `radar-7: ${snapshot.protocols.length} protocols, ${snapshot.watchlist.length} on the watchlist, ${board.length} rows scored (${radar.early_size} early, ${radar.off_list_size} off-list)\n` +
-    `radar-7: verdicts FARM ${verdicts.FARM} / MARGINAL ${verdicts.MARGINAL} / SKIP ${verdicts.SKIP}; total implied $${radar.total_implied_usd.toLocaleString('en-US')}\n` +
-    `radar-7: wrote ${join(out, 'board.json')}, ${join(out, 'data.js')}, ${join(out, 'dashboard')}, ${join(out, 'screenshots')} (${shots.length} images) and ${join(out, 'dossier.json')} in ${secs.toFixed(1)}s\n`,
+  `radar-9: ${snapshot.protocols.length} protocols, ${snapshot.watchlist.length} on the watchlist, ${board.length} rows scored (${radar.early_size} early, ${radar.off_list_size} off-list)\n` +
+    `radar-9: verdicts FARM ${verdicts.FARM} / MARGINAL ${verdicts.MARGINAL} / SKIP ${verdicts.SKIP}; total implied $${radar.total_implied_usd.toLocaleString('en-US')}\n` +
+    `radar-9: wrote ${join(out, 'board.json')}, ${join(out, 'data.js')}, ${join(out, 'dashboard')}, ${join(out, 'screenshots')} (${shots.length} images) and ${join(out, 'dossier.json')} in ${secs.toFixed(1)}s\n`,
 );
