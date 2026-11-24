@@ -1,7 +1,6 @@
-// radar-7 (token-radar-01, roni-rockabilly) — fitted-value + tested-odds radar.
-// Node 22, standard library only, no network. Every line written fresh in-session.
-// Pipeline (names the dashboard's "Note to the judge" maps to the rubric):
-//   deriveAll -> selectUniverse -> fitValue -> testTerms -> fitOdds
+// radar-10 (token-radar-01, roni-rockabilly) — fitted-value + tested-odds radar.
+// Node 22, standard library only, no network. Every entry line written fresh in-session.
+// Pipeline: deriveAll -> selectUniverse -> fitValue -> testTerms -> fitOdds
 //   -> bootstrapBands -> farmPlan -> checkBoard -> buildDossier (main.ts)
 //
 // MODEL PARAMETERS ARE THE FITTED VALUES from MODEL-SPEC.md (FASE 2 analyst
@@ -11,6 +10,11 @@
 // 10-fold) so the printed validation numbers are honestly measured, not
 // copied from the spec. Where a number is a spec constant by construction
 // (band multipliers, growth cap, ceiling), it is labelled as such.
+//
+// V2 SETS (MODEL-SPEC §1.6 — DUAL E2, the detail most often collapsed into
+// one rule by mistake): the RANKED set uses prep E2 (only V2/V3 names are
+// versioned: 201 rows); the value/odds FITS stay kit E2 (all version markers:
+// 92 comps / 442 peers). The transparency panel states both rules.
 
 export interface SnapshotProtocol {
   slug: string;
@@ -36,17 +40,19 @@ export interface Snapshot {
 // ---------------------------------------------------------------------------
 // MODEL PARAMETERS — fitted values (MODEL-SPEC.md §2.1, §3.1, §4.1, §6.1).
 // ---------------------------------------------------------------------------
-export const MODEL_VERSION = 'radar-7-v1';
+export const MODEL_VERSION = 'radar-10-v1';
 
 // Value model (§2.1): log10(V) = INTERCEPT + SLOPE*log10(TVL_fwd)
 //   + CHAIN_COEF*ln(n_chains); TVL_fwd = TVL*(1+clamp(excess, +/-0.25)),
 //   excess = change_7d/100 - MED_CHANGE_7D (null change_7d -> excess 0).
+//   The chains factor is 10^(coef * ln n) — the coefficient lives in log10
+//   space, so 4 chains give 0.7904, NOT e^term = 0.9029.
 export const VALUE_INTERCEPT = 4.151591391698986;
 export const VALUE_TVL_SLOPE = 0.37803061564497553;
 export const VALUE_CHAIN_COEF = -0.07367333346996185;
 export const MED_CHANGE_7D = -0.0823335; // market median change_7d, fraction (754 non-null)
 export const GROWTH_CAP = 0.25; // +/-25% growth cap, BOTH models (§3.1: load-bearing)
-export const MED_AGE_COMPS = 2.342231348391513; // median age (y) of the 70 dated comps (value age feature)
+export const MED_AGE_COMPS = 2.342231348391513; // median age (y) of the 70 dated comps
 export const MED_AGE_PEERS = 1.5277207392197125; // median age (y) of the 383 dated peers (odds imputation)
 
 // Odds model (§3.1): logit(p) = INTERCEPT + AGE*age_years + UNDATED*undated
@@ -95,9 +101,11 @@ export const MODEL_PARAMS: Record<string, number> = {
 };
 
 export const DAY_MS = 86_400_000;
-// Spec §1.1 E2: version marker at end of name (case-insensitive). 'Project 0'
-// is NOT a version (bare 0, no V, no decimal point).
-const VER_MARKER = /\s+(V\d+(\.\d+)?|\d+\.\d+)\s*$/i;
+// Spec §1.1 E2 — TWO rules. Kit E2 (fits): any version marker at end of
+// name. Prep E2 (ranked set): only V2/V3. 'Project 0' is NOT a version
+// under either (bare 0, no V, no decimal point).
+const VER_MARKER_KIT = /\s+(V\d+(\.\d+)?|\d+\.\d+)\s*$/i;
+const VER_MARKER_PREP = /\s+(V2|V3)\s*$/i;
 const EXCH_PREFIX = /^(binance|coinbase|bybit|bitfinex|robinhood|kraken|okx|bitget|kucoin|huobi|gemini|bitstamp)/i;
 const WRAPPED_WORD = /\b(wrapped|staked|staking)\b/i;
 const EXCLUDED_CATEGORIES = new Set(['Bridge', 'Canonical Bridge', 'Liquid Staking', 'Liquid Restaking', 'Restaked BTC', 'CEX']);
@@ -169,13 +177,10 @@ function solveLinear(A: number[][], b: number[]): number[] {
   return x;
 }
 
-/** OLS by normal equations. X rows are design rows, y is log10(mcap).
- *  Returns null on an empty training set (no comps at all, or a walk-forward
- *  split with no dated comps) — the caller reports that split as
- *  uncomputable (miss Infinity) instead of crashing. The 1e-8 ridge on the
- *  diagonal keeps a constant column (e.g. the age column when every comp is
- *  undated) from singularising the fit; it moves real coefficients by
- *  ~1e-10 relative, far below the printed 4 decimals. */
+/** OLS by normal equations. Returns null on an empty training set — the
+ *  caller reports that split as uncomputable (miss Infinity) instead of
+ *  crashing. The 1e-8 ridge on the diagonal keeps a constant column from
+ *  singularising the fit; it moves real coefficients by ~1e-10 relative. */
 function olsFit(X: number[][], y: number[]): number[] | null {
   if (X.length === 0) return null;
   const k = X[0]!.length;
@@ -237,22 +242,45 @@ export function isPreToken(p: SnapshotProtocol): boolean {
 }
 
 /**
- * Whether a protocol is stand-alone (spec §1.1 E1–E4): not in an excluded
- * category, not a versioned/wrapped/staked name, not exchange-named.
- * Cross Chain Bridge and Staking Pool are KEPT as peers (the house rule
- * does not exclude them). 442 of 758 qualify; 244 of them record a token.
+ * Whether a protocol is stand-alone under the KIT E2 rule (spec §1.1):
+ * not in an excluded category, not a versioned/wrapped/staked name, not
+ * exchange-named. Cross Chain Bridge and Staking Pool are KEPT as peers.
+ * 442 of 758 qualify; 244 of them record a token. Used for the FITS.
  */
-export function isStandalone(p: SnapshotProtocol): boolean {
+export function isStandaloneKit(p: SnapshotProtocol): boolean {
   if (p.category !== null && EXCLUDED_CATEGORIES.has(p.category)) return false;
-  if (VER_MARKER.test(p.name)) return false;
+  if (VER_MARKER_KIT.test(p.name)) return false;
   if (WRAPPED_WORD.test(p.name)) return false;
   if (EXCH_PREFIX.test(p.name)) return false;
   return true;
 }
 
-/** Whether a pre-token protocol may be ranked: pre-token and stand-alone. */
+/**
+ * Whether a protocol is stand-alone under the PREP E2 rule (spec §1.1):
+ * same as kit, except only V2/V3 names count as versioned. Keeps the three
+ * prep rows the kit rule drops (V1 / V12 names). 466 of 758 qualify.
+ * Used for the RANKED set only.
+ */
+export function isStandalonePrep(p: SnapshotProtocol): boolean {
+  if (p.category !== null && EXCLUDED_CATEGORIES.has(p.category)) return false;
+  if (VER_MARKER_PREP.test(p.name)) return false;
+  if (WRAPPED_WORD.test(p.name)) return false;
+  if (EXCH_PREFIX.test(p.name)) return false;
+  return true;
+}
+
+/** The first house-rule code that sets a protocol aside (kit E2), or null. */
+export function exclusionReason(p: SnapshotProtocol): string | null {
+  if (p.category !== null && EXCLUDED_CATEGORIES.has(p.category)) return `E1 category ${p.category}`;
+  if (VER_MARKER_KIT.test(p.name)) return 'E2 versioned name';
+  if (WRAPPED_WORD.test(p.name)) return 'E3 wrapped/staked name';
+  if (EXCH_PREFIX.test(p.name)) return 'E4 exchange-named';
+  return null;
+}
+
+/** Whether a pre-token protocol may be ranked: pre-token and prep-stand-alone. */
 export function isRankable(p: SnapshotProtocol): boolean {
-  return isPreToken(p) && isStandalone(p);
+  return isPreToken(p) && isStandalonePrep(p);
 }
 
 /** The snapshot out of a file's text. Corrupt shapes are refused; missing or
@@ -302,7 +330,7 @@ export function deriveAll(text: string): Snapshot {
 export const parseSnapshot = deriveAll;
 
 // ---------------------------------------------------------------------------
-// selectUniverse — the 198 ranked rows + the 758-protocol ledger (spec §1.5).
+// selectUniverse — the 201 ranked rows + the 758-protocol ledger (spec §1.5).
 // ---------------------------------------------------------------------------
 
 export type Tier = 'watchlist' | 'early' | 'off-list';
@@ -313,12 +341,20 @@ export interface LedgerGroup {
   count: number;
 }
 
+export interface ExcludedRow {
+  slug: string;
+  name: string;
+  reason: string;
+}
+
 export interface Universe {
   ranked: { p: SnapshotProtocol; tier: Tier }[];
   ledger: LedgerGroup[];
-  comps: SnapshotProtocol[]; // traded, stand-alone, mcap > 0: the value fit set (92).
-  peers: SnapshotProtocol[]; // stand-alone protocols: the odds fit set (442).
+  comps: SnapshotProtocol[]; // traded, kit-stand-alone, mcap > 0: the value fit set (92).
+  peers: SnapshotProtocol[]; // kit-stand-alone protocols: the odds fit set (442).
+  peersPrep: SnapshotProtocol[]; // prep-stand-alone protocols (466; the ledger's peer count).
   marketMedian7d: number; // median change_7d as a FRACTION (spec MED_CHANGE_7D, verified from the snapshot)
+  excluded72: ExcludedRow[]; // pre-token, TVL >= floor, set aside by the house rule, with reason codes.
 }
 
 export function selectUniverse(snapshot: Snapshot): Universe {
@@ -332,44 +368,53 @@ export function selectUniverse(snapshot: Snapshot): Universe {
     const p = bySlug.get(slug);
     if (p !== undefined && !seen.has(slug)) { ranked.push({ p, tier: 'watchlist' }); seen.add(slug); }
   }
-  // Off-list: pre-token, at or above the floor, stand-alone, but not on the
-  // watchlist (spec §1.4: the 20 are above the floor, not on the house list).
+  // Off-list: pre-token, at or above the floor, prep-stand-alone, but not on
+  // the watchlist (spec §1.4: the 20 are above the floor, not on the house list).
   const offList = snapshot.protocols
     .filter((p) => !seen.has(p.slug) && isRankable(p) && p.tvl_usd >= snapshot.floor_usd)
     .sort((a, b) => b.tvl_usd - a.tvl_usd || (a.slug < b.slug ? -1 : 1));
   for (const p of offList) { ranked.push({ p, tier: 'off-list' }); seen.add(p.slug); }
-  // Early: pre-token, stand-alone, below the floor, by TVL.
+  // Early: pre-token, prep-stand-alone, below the floor, by TVL.
   const early = snapshot.protocols
     .filter((p) => !seen.has(p.slug) && isRankable(p) && p.tvl_usd < snapshot.floor_usd)
     .sort((a, b) => b.tvl_usd - a.tvl_usd || (a.slug < b.slug ? -1 : 1));
   for (const p of early) { ranked.push({ p, tier: 'early' }); seen.add(p.slug); }
 
-  const comps = snapshot.protocols.filter((p) => p.mcap_usd !== null && p.mcap_usd > 0 && isStandalone(p));
-  const peers = snapshot.protocols.filter(isStandalone);
+  const comps = snapshot.protocols.filter((p) => p.mcap_usd !== null && p.mcap_usd > 0 && isStandaloneKit(p));
+  const peers = snapshot.protocols.filter(isStandaloneKit);
+  const peersPrep = snapshot.protocols.filter(isStandalonePrep);
   const changes = snapshot.protocols.map((p) => p.change_7d).filter((c): c is number => c !== null).map((c) => c / 100);
   const marketMedian7d = median(changes);
 
-  // Ledger (spec §1.5): every protocol in exactly one group, priority order
-  // ranked -> peer-with-token -> excluded category -> versioned -> wrapped.
-  // Verified counts: 40 + 20 + 138 + 244 + 55 + 56 + 32 + 78 + 9 + 3 + 76 + 7 = 758.
+  // The 72: pre-token, TVL at or above the floor, NOT ranked — set aside by
+  // the house rule, each with its reason code (E1 category / E2 version /
+  // E3 wrapped / E4 exchange). Spec §0: 72, not 92 (92 = 72 + 20 off-list).
+  const rankedSet = new Set(ranked.map((r) => r.p.slug));
+  const excluded72: ExcludedRow[] = snapshot.protocols
+    .filter((p) => isPreToken(p) && p.tvl_usd >= snapshot.floor_usd && !rankedSet.has(p.slug))
+    .map((p) => ({ slug: p.slug, name: p.name, reason: exclusionReason(p) ?? 'house rule' }))
+    .sort((a, b) => (a.reason < b.reason ? -1 : a.reason > b.reason ? 1 : a.slug < b.slug ? -1 : 1));
+
+  // Ledger (spec §1.5, prep E2): every protocol in exactly one group,
+  // priority ranked -> peer-with-token (prep) -> excluded category ->
+  // versioned (prep) -> wrapped. Verified: 40+20+141+265+55+56+32+78+9+3+52+7 = 758.
   const groups = new Map<string, LedgerGroup>();
   const add = (name: string, reason: string) => {
     const g = groups.get(name);
     if (g) g.count += 1;
     else groups.set(name, { name, reason, count: 1 });
   };
-  const rankedSet = new Set(ranked.map((r) => r.p.slug));
   for (const p of snapshot.protocols) {
     if (rankedSet.has(p.slug)) {
       const tier = ranked.find((r) => r.p.slug === p.slug)!.tier;
       if (tier === 'watchlist') add('ranked — watchlist', 'On the house watchlist: TVL at or above the $50M floor, records no token.');
       else if (tier === 'off-list') add('ranked — off-list', 'Records no token and stands alone at or above the floor, but the house list leaves it out.');
       else add('ranked — early, below the floor', 'Records no token, stands alone, TVL below the $50M floor.');
-    } else if (isStandalone(p)) {
+    } else if (isStandalonePrep(p)) {
       add('peer, records a token', 'Stands alone and records a token; never ranked, but its record prices the odds.');
     } else if (p.category !== null && EXCLUDED_CATEGORIES.has(p.category)) {
       add(`set aside — ${p.category}`, 'A bridge, exchange, or staked form of a token that already trades: nothing of its own to launch.');
-    } else if (VER_MARKER.test(p.name)) {
+    } else if (VER_MARKER_PREP.test(p.name)) {
       add('set aside — versioned name', 'A versioned release of one protocol, not a protocol of its own.');
     } else {
       add('set aside — wrapped or staked by name', 'A wrapped or staked product named as such, or named for an exchange.');
@@ -383,7 +428,7 @@ export function selectUniverse(snapshot: Snapshot): Universe {
     'set aside — versioned name', 'set aside — wrapped or staked by name',
   ];
   const ledger = order.filter((n) => groups.has(n)).map((n) => groups.get(n)!);
-  return { ranked, ledger, comps, peers, marketMedian7d };
+  return { ranked, ledger, comps, peers, peersPrep, marketMedian7d, excluded72 };
 }
 
 // ---------------------------------------------------------------------------
@@ -677,6 +722,68 @@ export function testTerms(snapshot: Snapshot, uni: Universe): TestTermsResult {
 }
 
 // ---------------------------------------------------------------------------
+// V2 keep/drop tables (MODEL-SPEC §2.2 / §3.2) — FASE 2 analysis results.
+// These are the analyst's fitted-and-tested numbers on this same snapshot
+// (analysis/fit01–fit05, pre-registered both-tests rule). They are carried
+// here as data constants — the same treatment as the fitted coefficients
+// above and the nested picks below — so the dashboard renders them from
+// data.js. They are NOT recomputed by the entry program: each candidate
+// needs its own design (percentile references, age-decay forms, ridge
+// category offsets) that the live model does not ship. The live evidence
+// table above (testTerms) IS recomputed in-code on every run.
+// ---------------------------------------------------------------------------
+
+export interface V2TermRow {
+  id: string;
+  term: string;
+  loo: string; // 'x3.1961' value miss, or Brier '0.188058'; '—' when not measured
+  wf: string;
+  third: string; // 5-fold miss (value) or 10-fold Brier (odds)
+  verdict: string; // 'KEPT' / 'FINAL' / 'NOT KEPT'
+  why: string;
+}
+
+export const V2_VALUE_TERMS: V2TermRow[] = [
+  { id: '0', term: 'Size curve only', loo: '×3.2693', wf: '×2.1057', third: '×3.2022', verdict: 'BASE', why: 'Reproduced baseline.' },
+  { id: '0+g', term: '+ growth carry, excess capped ±25%', loo: '×3.2224', wf: '×2.0924', third: '×3.2653', verdict: 'KEPT', why: 'Thin win on both deciding tests.' },
+  { id: '0+g+c', term: '+ ln(chains) — the shipped model', loo: '×3.2194', wf: '×2.0668', third: '×3.0188', verdict: 'FINAL', why: 'Wins both tests. Chains is a discount (−0.0737), not a premium.' },
+  { id: 'V1a', term: 'pct(logTVL) only (replaces log-linear TVL)', loo: '×3.5856', wf: '×2.4819', third: '×3.6517', verdict: 'NOT KEPT', why: 'Both tests worse.' },
+  { id: 'V1a+c', term: 'pct(logTVL) + ln(chains)', loo: '×3.0910', wf: '×2.3712', third: '×3.2867', verdict: 'NOT KEPT', why: 'LOO wins, walk-forward fails badly.' },
+  { id: 'V1b', term: 'logTVL_fwd + pct(momentum) (replaces growth carry)', loo: '×3.4556', wf: '×2.0932', third: '×3.3543', verdict: 'NOT KEPT', why: 'Both tests worse.' },
+  { id: 'V1c', term: 'pct(logTVL) + pct(momentum)', loo: '×3.7153', wf: '×2.4017', third: '×3.4709', verdict: 'NOT KEPT', why: 'Both tests worse.' },
+  { id: 'V1d', term: 'pct(logTVL) + pct(mom) + ln(chains)', loo: '×3.1290', wf: '×2.4523', third: '×3.3586', verdict: 'NOT KEPT', why: 'LOO wins, walk-forward fails badly.' },
+  { id: 'V1e', term: 'pct both, percentiles clamped [0.05, 0.95]', loo: '×3.7288', wf: '×2.4064', third: '×3.4875', verdict: 'NOT KEPT', why: 'Both tests worse.' },
+  { id: 'V1f', term: 'logTVL_fwd + pct(momentum vs pre-token 342) + ln(chains)', loo: '×3.1961', wf: '×2.0308', third: '×3.1898', verdict: 'NOT KEPT', why: 'Nominal both-tests pass, REJECTED on robustness: coefficient flips sign (+0.1565 WF-train vs −0.1772 full); LOO win lives only in the 22 undated comps; 5-fold worse; beats baseline in only 38% of bootstrap resamples.' },
+  { id: 'V1f2', term: 'pct(mom vs eligible-201) + ln(chains)', loo: '×3.2562', wf: '×1.9910', third: '×3.1090', verdict: 'NOT KEPT', why: 'LOO worse.' },
+  { id: 'V1f3', term: 'pct(mom vs all-758) + ln(chains)', loo: '×3.1694', wf: '×2.0837', third: '×3.2052', verdict: 'NOT KEPT', why: 'Walk-forward worse.' },
+  { id: 'V1f4', term: 'pct(logTVL vs pre-token-342) + ln(chains)', loo: '×3.0264', wf: '×2.0713', third: '×3.2169', verdict: 'NOT KEPT', why: 'Walk-forward fails by 0.0045.' },
+  { id: 'V1f5', term: 'pct(logTVL vs eligible-201) + ln(chains)', loo: '×2.9835', wf: '×2.3451', third: '×3.2219', verdict: 'NOT KEPT', why: 'Walk-forward fails.' },
+  { id: 'V2a', term: '+ age boost, lin-decay, free coef', loo: '×3.4467', wf: '×2.0668', third: '×3.2527', verdict: 'NOT KEPT', why: 'LOO worse, walk-forward an exact tie (WF train has zero protocols <180d — coefficient unidentified there).' },
+  { id: 'V2b', term: '+ age boost, exp-decay, free coef', loo: '×3.2349', wf: '×5.5×10¹⁸', third: '×3.0188', verdict: 'NOT KEPT', why: 'Walk-forward catastrophic (degenerate: near-constant column in train blows up on young test rows).' },
+  { id: 'V2c', term: '+ age boost lin + undated dummy', loo: '×3.1045', wf: '×2.0668', third: '×3.1910', verdict: 'NOT KEPT', why: 'Walk-forward is an exact tie (diff +0.000000), not a win.' },
+  { id: 'V2d', term: 'Multiplicative boost 1+a·max(0,(180−d)/180), a=0.1–2.0', loo: '×3.2167→×3.1822', wf: '×2.0668→×2.2785', third: '—', verdict: 'NOT KEPT', why: 'LOO improves with a, walk-forward never lowers.' },
+  { id: 'V3a', term: '+ category, coarse3, ridge k=16', loo: '×3.1534', wf: '×2.1583', third: '×3.0664', verdict: 'NOT KEPT', why: 'Walk-forward fails.' },
+  { id: 'V3b', term: '+ category, coarse3, ridge k=64', loo: '×3.3003', wf: '×2.1073', third: '×3.1197', verdict: 'NOT KEPT', why: 'Both tests worse.' },
+  { id: 'V3c', term: '+ category, Allocator vs rest, k=16', loo: '×3.2198', wf: '×2.2133', third: '—', verdict: 'NOT KEPT', why: 'Both tests worse.' },
+  { id: 'V3d', term: '+ category, Allocator vs rest, k=64', loo: '×3.2197', wf: '×2.0319', third: '—', verdict: 'NOT KEPT', why: 'LOO worse by 0.0003.' },
+  { id: 'V3e', term: '+ category, Dexs/Lending vs rest, k=16', loo: '×3.1112', wf: '×2.1912', third: '—', verdict: 'NOT KEPT', why: 'Walk-forward fails.' },
+  { id: 'V3f', term: '+ category, Risk Curators vs rest, ridge k=16', loo: '×3.1662', wf: '×1.9870', third: '×3.0107', verdict: 'NOT KEPT', why: 'Literal both-tests pass, REJECTED on mechanism: Risk Curators has exactly ONE traded comp; a plain −0.0171 dex intercept shift reproduces the walk-forward win exactly — the win is one outlier leaking into the Rest offset, not a category multiple.' },
+  { id: 'V3g', term: '+ category, Risk Curators vs rest, ridge k=64', loo: '×3.1827', wf: '×2.0257', third: '×3.0107', verdict: 'NOT KEPT', why: 'Same one-protocol mechanism rejection as V3f.' },
+  { id: 'V5', term: 'COMBINED V2 full design (pct TVL + pct mom + age-boost-lin + coarse3-cat k=16 + ln(chains))', loo: '×3.2903', wf: '×1.9399', third: '×3.0890', verdict: 'NOT KEPT', why: 'LOO worse than the shipped model — the full V2 design is not an improvement.' },
+  { id: 'V5b', term: 'Best-of (pct both + chains + RC-vs-rest k=16)', loo: '×3.1349', wf: '×2.3661', third: '—', verdict: 'NOT KEPT', why: 'Walk-forward fails badly.' },
+  { id: 'G1', term: 'CONTROL: neighbour-row growth (on base+growth)', loo: '×3.3467', wf: '×2.5403', third: '×3.1305', verdict: 'NOT KEPT', why: 'Must not help. Hurts both deciding tests. Clean control.' },
+  { id: 'G2', term: 'CONTROL: neighbour-row growth (on final)', loo: '×3.1217', wf: '×2.5019', third: '×3.1728', verdict: 'NOT KEPT', why: 'Must not help. LOO improves but walk-forward worsens badly. Clean control.' },
+];
+
+export const V2_ODDS_TERMS: V2TermRow[] = [
+  { id: 'D1', term: '+ age-boost, lin-decay max(0,(180−d)/180)', loo: '0.188058', wf: '0.209304', third: '0.186950', verdict: 'NOT KEPT', why: 'LOO/10-fold improve thinly, walk-forward is an EXACT TIE — same structural trap as value V2a: the WF train has zero peers <180d.' },
+  { id: 'D2', term: '+ age-boost, exp-decay exp(−d/90)', loo: '0.186999', wf: '0.409105', third: '0.185653', verdict: 'NOT KEPT', why: 'Walk-forward catastrophic (degenerate: near-constant ~10⁻⁴ column in train, coef +1.6886 blows up on young test peers).' },
+  { id: 'D3', term: '+ chain count, ln(n_chains)', loo: '0.189126', wf: '0.207000', third: '0.187758', verdict: 'NOT KEPT', why: 'LOO worsens (same as the radar-7 5d test); 10-fold/WF improve.' },
+  { id: 'D4', term: '+ coarse category share, Allocator (Risk Curators) vs rest, α=8', loo: '0.183007', wf: '0.278699', third: '0.181669', verdict: 'NOT KEPT', why: 'LOO/10-fold improve a lot, walk-forward worsens catastrophically. Risk Curators peers n=39, token rate 0.128 — a strong in-sample signal that does not travel forward in time.' },
+  { id: 'G3', term: '+ CONTROL: growth of neighbouring peer in snapshot order', loo: '0.189645', wf: '0.210293', third: '0.188562', verdict: 'NOT KEPT', why: 'Must not help. All three tests worsen. Clean control.' },
+];
+
+// ---------------------------------------------------------------------------
 // fitOdds — token odds from the 442 peers' own record (spec §3).
 // The LIVE odds use the fixed full-fit logistic coefficients (§3.1).
 // fitOddsEvidence REFITS (IRLS logistic, honest inside every fold).
@@ -916,8 +1023,6 @@ export function fitOddsEvidence(snapshot: Snapshot, uni: Universe): OddsEvidence
     rows.push({ term: d.label, brierLoo: round4(s.loo), brier10Fold: round4(s.f10), brierWf: round4(s.wf), kept, note: d.note });
   }
   const finalCfg: OddsCfg = { age: true, ageDummy: true, size: true, growth: true };
-  // Reuse the loop's evaluations: the final model is the '+ growth' row,
-  // the base rate is the first row (no second LOO run).
   const finalEval = evalByLabel.get('+ growth_xs, capped ±25%')!;
   const baseEval = evalByLabel.get('base rate only')!;
   const finalFit = fitLogit(peers, finalCfg, asOf, controlGrowth);
@@ -986,12 +1091,20 @@ export interface BandResult {
   rankHi: number;
 }
 
+export interface WideningResult {
+  factor: number; // smallest uniform log-space widening reaching 80% on the honest WF check
+  p90: number; p90From: number; span: number; spanFrom: number; // printed band at that factor
+  loo1090: number; wf1090: number; loo2575: number; wf2575: number; // widened PRINTED band coverage
+  looN: number; wfN: number;
+}
+
 export interface CoverageResult {
   loo2575: number; loo1090: number; looN: number;
   wf2575: number; wf1090: number; wfN: number;
   honestWf2575: number; honestWf1090: number;
   honestQ25: number; honestQ75: number; honestQ10: number; honestQ90: number;
   refitLoo2575: number; refitLoo1090: number; refitWf2575: number; refitWf1090: number;
+  widening: WideningResult;
 }
 
 const FINAL_VALUE_CFG: ValueCfg = { growth: true, chains: true };
@@ -1078,7 +1191,7 @@ function coverCount(predLog: number[], actLog: number[], lo: number, hi: number)
 
 /** Held-out coverage of the §4.1 predictive bands, plus the honest-WF check
  *  (band quantiles built from older-half LOO residuals only, then applied
- *  to the newer half — the nyx77 admission line). */
+ *  to the newer half — the range-honesty admission line). */
 export function intervalCoverage(
   comps: SnapshotProtocol[],
   asOf: string,
@@ -1093,6 +1206,32 @@ export function intervalCoverage(
   const hq = combinedQuantiles(boot.devs, olderResid);
   const honest2575 = coverCount(r.wfPredLog, r.wfActLog, hq.q25, hq.q75);
   const honest1090 = coverCount(r.wfPredLog, r.wfActLog, hq.q10, hq.q90);
+  // Widening test: the smallest uniform log-space widening w of the HONEST
+  // band that reaches 80% P10–P90 on the honest WF check. The printed
+  // band's P90/span and its LOO/WF coverage at the same w are the
+  // illustration: widening buys over-coverage and a wide span for a
+  // circular gain, so the bands stay as stated.
+  const need1090 = Math.ceil(0.8 * r.wfPredLog.length);
+  let wFound = 2;
+  for (let cand = 1.0; cand <= 2.001; cand += 0.01) {
+    if (coverCount(r.wfPredLog, r.wfActLog, hq.q10 * cand, hq.q90 * cand) >= need1090) {
+      wFound = Math.round(cand * 100) / 100;
+      break;
+    }
+  }
+  const widening: WideningResult = {
+    factor: wFound,
+    p90: round4(Math.pow(10, BAND_Q90 * wFound)),
+    p90From: round4(Math.pow(10, BAND_Q90)),
+    span: round4(Math.pow(10, (BAND_Q90 - BAND_Q10) * wFound)),
+    spanFrom: round4(Math.pow(10, BAND_Q90 - BAND_Q10)),
+    loo1090: coverCount(r.looPredLog, r.looActLog, BAND_Q10 * wFound, BAND_Q90 * wFound),
+    wf1090: coverCount(r.wfPredLog, r.wfActLog, BAND_Q10 * wFound, BAND_Q90 * wFound),
+    loo2575: coverCount(r.looPredLog, r.looActLog, BAND_Q25 * wFound, BAND_Q75 * wFound),
+    wf2575: coverCount(r.wfPredLog, r.wfActLog, BAND_Q25 * wFound, BAND_Q75 * wFound),
+    looN: r.looPredLog.length,
+    wfN: r.wfPredLog.length,
+  };
   // Refit-only bands (bootstrap spread only, no residual scatter): the
   // warning line — they hold only ~14%/26% of real caps, so they are never
   // printed as row bands. Quantiles of the pooled refit deviations.
@@ -1110,6 +1249,7 @@ export function intervalCoverage(
     refitLoo1090: coverCount(r.looPredLog, r.looActLog, dq10, dq90),
     refitWf2575: coverCount(r.wfPredLog, r.wfActLog, dq25, dq75),
     refitWf1090: coverCount(r.wfPredLog, r.wfActLog, dq10, dq90),
+    widening,
   };
 }
 
@@ -1247,13 +1387,18 @@ function holdDaysFor(age: number | null): number {
 function actionFor(p: SnapshotProtocol, capital: number, chain: string): string {
   const c = (p.category ?? '').toLowerCase();
   const name = p.name;
-  if (c.includes('lend') || c.includes('cdp') || c.includes('collateral')) return `Supply $${capital} of USDC to ${name} on ${chain} and keep the position open.`;
+  // CDP: the position IS the mint/borrow — collateral in, debt out.
+  if (c === 'cdp' || c.includes('collateral')) return `Deposit $${capital} of collateral on ${name} on ${chain}, mint or borrow against it, and keep the loan open.`;
+  if (c.includes('cdp manager')) return `Use ${name} to manage a $${capital} position on ${chain} and keep it open.`;
+  if (c.includes('lend')) return `Supply $${capital} of USDC to ${name} on ${chain} and keep the position open.`;
   if (c.includes('dex') || c.includes('yield') || c.includes('leveraged farm')) return `Provide $${capital} of liquidity to ${name}'s main pool on ${chain} and keep the position open.`;
   if (c.includes('bridge')) return `Bridge $${capital} of USDC to ${chain} through ${name} and use the bridged funds in its app.`;
   if (c.includes('staking') || c.includes('restak')) return `Stake $${capital} of the chain's staking asset through ${name} and keep the receipt token in your own wallet.`;
   if (c.includes('perpetual') || c.includes('derivative')) return `Deposit $${capital} of USDC as margin on ${name} and open one small hedged position.`;
-  if (c.includes('prediction')) return `Fund $${capital} and place one market position on ${name}.`;
-  if (c.includes('curator') || c.includes('allocator') || c.includes('vault')) return `Deposit $${capital} into a ${name} vault on ${chain} and keep the shares.`;
+  // Prediction Market: the farmable action is liquidity provision, not a bet.
+  if (c.includes('prediction')) return `Provide $${capital} of liquidity to a ${name} market on ${chain} and keep the position open.`;
+  // Risk Curators: the deposit goes in via the curator, not a generic vault.
+  if (c.includes('curator') || c.includes('allocator') || c.includes('vault')) return `Deposit $${capital} into a ${name} vault on ${chain} via its curator and keep the vault shares.`;
   if (c.includes('stable')) return `Mint or deposit $${capital} of the stable asset through ${name} on ${chain}.`;
   if (c.includes('rwa')) return `Mint $${capital} of the protocol's yield asset on ${chain} and hold it.`;
   if (c.includes('insurance')) return `Buy $${capital} of cover from ${name} on ${chain} and keep the policy.`;
@@ -1298,10 +1443,16 @@ export function farmPlan(
     return s;
   };
   const steps = [
-    step('Use a fresh wallet that holds only the funds you plan to farm, and keep its seed phrase offline', 'no fee to set up', '5 minutes'),
+    step((p.category ?? '').toLowerCase().includes('rwa')
+      ? `Use a fresh wallet that holds only the funds you plan to farm, and complete ${p.name}'s KYC or whitelist check first — its yield asset is permissioned and an unverified wallet cannot hold it`
+      : 'Use a fresh wallet that holds only the funds you plan to farm, and keep its seed phrase offline', 'no fee to set up', '5 minutes'),
     step(action.replace(/\.$/, ''), `$${Math.round(dep.deposit)} of capital and about $${Math.max(1, Math.round(feePerTx * 4 * 100) / 100)} of gas`, '15 minutes to set up'),
     step(`Verify the position on the protocol's own points or rewards page and confirm the wallet is eligible`, 'no fee to check', '10 minutes'),
-    step(`Make one qualifying action each week, such as a deposit, a borrow, a swap or a vote`, `about $${Math.round(feePerTx * 100) / 100} of gas a week`, '10 minutes a week'),
+    step((p.category ?? '').toLowerCase() === 'cdp' || (p.category ?? '').toLowerCase().includes('collateral')
+      ? `Make one qualifying action each week: top up collateral or trim the borrow so the position stays healthy`
+      : (p.category ?? '').toLowerCase().includes('prediction')
+        ? `Make one qualifying action each week: add or remove liquidity as the market's odds move`
+        : `Make one qualifying action each week, such as a deposit, a borrow, a swap or a vote`, `about $${Math.round(feePerTx * 100) / 100} of gas a week`, '10 minutes a week'),
     step(`Hold the position for at least ${holdDays} days so the activity is counted in more than one snapshot`, `the $${Math.round(dep.deposit)} stays in the position`, `${holdDays} days`),
     step(`Watch TVL weekly; ${stopRule.replace(/\.$/, '')}`, 'no fee to check', '5 minutes a week'),
     step(`Before you withdraw, open the protocol's own points or rewards page and claim only from the link it publishes`, 'no fee to check, and never pay to claim', '10 minutes'),
@@ -1334,6 +1485,97 @@ export function farmVerdictAt(
 }
 
 // ---------------------------------------------------------------------------
+// Nested term-selection proof + ablation.
+// The nested picks are ANALYSIS results, not recomputed by the entry program:
+// they re-run term selection inside six training subsets of the SAME kit
+// fits this entry uses (92 comps / 442 peers), so the picks are identical
+// here — the ranked set (201 vs 198) does not enter the fits. They are
+// carried here as data constants — the same treatment as the fitted
+// coefficients in MODEL PARAMETERS — so the dashboard renders them from
+// data.js instead of hardcoded HTML. The ablation IS recomputed live below
+// (ablationEvidence): its measure 1 uses the entry's own LOO residuals, its
+// measure 2 the board it just built. Neither experiment changes the model,
+// whatever it shows.
+// ---------------------------------------------------------------------------
+
+export interface NestedPick { subset: string; n: number; rule: string[]; score: string[] }
+
+export const NESTED_VALUE: NestedPick[] = [
+  { subset: '5-fold train 1', n: 73, rule: ['chains'], score: ['chains', 'cat64'] },
+  { subset: '5-fold train 2', n: 73, rule: ['growth'], score: ['age', 'growth'] },
+  { subset: '5-fold train 3', n: 74, rule: ['growth', 'cat64'], score: ['age', 'growth'] },
+  { subset: '5-fold train 4', n: 74, rule: [], score: ['cat64'] },
+  { subset: '5-fold train 5', n: 74, rule: [], score: ['age', 'growth', 'chains', 'cat64'] },
+  { subset: 'Walk-forward train', n: 35, rule: ['control'], score: ['cat64'] },
+];
+
+export const NESTED_ODDS: NestedPick[] = [
+  { subset: '5-fold train 1', n: 353, rule: ['age', 'size', 'growth', 'cat'], score: ['age', 'dummy', 'size', 'growth', 'cat'] },
+  { subset: '5-fold train 2', n: 353, rule: ['age', 'dummy', 'size', 'growth'], score: ['age', 'dummy', 'size', 'cat', 'growth'] },
+  { subset: '5-fold train 3', n: 354, rule: ['age', 'dummy', 'size', 'cat'], score: ['age', 'dummy', 'size', 'cat', 'growth', 'control'] },
+  { subset: '5-fold train 4', n: 354, rule: ['age', 'dummy', 'size', 'growth'], score: ['age', 'dummy', 'size', 'chains', 'growth'] },
+  { subset: '5-fold train 5', n: 354, rule: ['age', 'dummy', 'size'], score: ['age', 'dummy', 'size', 'growth', 'chains'] },
+  { subset: 'Walk-forward train', n: 191, rule: ['growth'], score: ['age', 'growth', 'size', 'chains'] },
+];
+
+export interface AblationTotals { n: number; implied: number; launch: number; tvl: number; farm: number; marginal: number; skip: number }
+
+export interface AblationEvidence {
+  top20Comps: string[];
+  top20Rows: string[];
+  subsetMiss: number; subsetWithin3: number;
+  fullMiss: number; fullWithin3: number;
+  kept: boolean;
+  full: AblationTotals;
+  rest: AblationTotals;
+}
+
+export interface Round4Evidence {
+  nestedValue: NestedPick[];
+  nestedOdds: NestedPick[];
+  widening: WideningResult;
+  ablation: AblationEvidence;
+}
+
+/** Ablation, computed live from the entry's own fits and board.
+ *  Measure 1: the 20 comps with the highest model-implied value
+ *  (launch x p_ever) — their LOO miss vs the full 92-comp LOO miss.
+ *  Kept iff subset <= full + 0.10 absolute AND <= full x 1.10 relative.
+ *  Measure 2: the board with its top-20 ranked rows removed — totals and
+ *  farm counts on the remaining rows vs the full board. */
+export function ablationEvidence(snapshot: Snapshot, uni: Universe, board: BoardRow[]): AblationEvidence {
+  const r = valueResiduals(uni.comps, snapshot.as_of);
+  const ranked = uni.comps.map((c, i) => ({
+    slug: c.slug,
+    implied: launchValue(c) * oddsEver(c, snapshot.as_of).ever,
+    err: Math.abs(r.looResid[i]!),
+  })).sort((a, b) => b.implied - a.implied);
+  const top20 = ranked.slice(0, 20);
+  const subsetMiss = round4(Math.pow(10, median(top20.map((t) => t.err))));
+  const subsetWithin3 = round4(top20.filter((t) => Math.pow(10, t.err) <= 3).length / top20.length);
+  const fullMiss = round4(Math.pow(10, median(ranked.map((t) => t.err))));
+  const fullWithin3 = round4(ranked.filter((t) => Math.pow(10, t.err) <= 3).length / ranked.length);
+  const totals = (rows: BoardRow[]): AblationTotals => ({
+    n: rows.length,
+    implied: rows.reduce((a, x) => a + x.implied_value_usd, 0),
+    launch: rows.reduce((a, x) => a + x.launch_value_usd, 0),
+    tvl: rows.reduce((a, x) => a + x.tvl_usd, 0),
+    farm: rows.filter((x) => x.verdict === 'FARM').length,
+    marginal: rows.filter((x) => x.verdict === 'MARGINAL').length,
+    skip: rows.filter((x) => x.verdict === 'SKIP').length,
+  });
+  const top20Rows = board.slice(0, 20);
+  const topSlugs = new Set(top20Rows.map((x) => x.slug));
+  return {
+    top20Comps: top20.map((t) => t.slug),
+    top20Rows: top20Rows.map((x) => x.slug),
+    subsetMiss, subsetWithin3, fullMiss, fullWithin3,
+    kept: subsetMiss <= fullMiss + 0.10 && subsetMiss <= fullMiss * 1.10,
+    full: totals(board),
+    rest: totals(board.filter((x) => !topSlugs.has(x.slug))),
+  };
+}
+
 // buildRadar — the whole pipeline, and the dashboard payload.
 // ---------------------------------------------------------------------------
 
@@ -1402,6 +1644,8 @@ export interface RadarData {
   total_tvl_usd: number;
   total_launch_usd: number;
   valueTerms: TermRow[];
+  v2ValueTerms: V2TermRow[];
+  v2OddsTerms: V2TermRow[];
   flatLoo: number;
   flatWalkForward: number;
   flatFiveFold: number;
@@ -1422,7 +1666,10 @@ export interface RadarData {
   coverageRefitLoo1090: number;
   coverageRefitWf2575: number;
   coverageRefitWf1090: number;
+  widening: WideningResult;
+  round4: Round4Evidence;
   ledger: LedgerGroup[];
+  excluded72: ExcludedRow[];
   checks: { label: string; ok: boolean; detail: string }[];
   checksum: string;
   farmCountsPerRow: FarmCounts;
@@ -1611,6 +1858,8 @@ export function buildRadar(snapshot: Snapshot, checksum: string): { board: Board
     total_tvl_usd: board.reduce((a, r) => a + r.tvl_usd, 0),
     total_launch_usd: board.reduce((a, r) => a + r.launch_value_usd, 0),
     valueTerms: terms.rows,
+    v2ValueTerms: V2_VALUE_TERMS,
+    v2OddsTerms: V2_ODDS_TERMS,
     flatLoo: terms.flatLoo,
     flatWalkForward: terms.flatWalkForward,
     flatFiveFold: terms.flatFiveFold,
@@ -1631,7 +1880,15 @@ export function buildRadar(snapshot: Snapshot, checksum: string): { board: Board
     coverageRefitLoo1090: coverage.refitLoo1090,
     coverageRefitWf2575: coverage.refitWf2575,
     coverageRefitWf1090: coverage.refitWf1090,
+    widening: coverage.widening,
+    round4: {
+      nestedValue: NESTED_VALUE,
+      nestedOdds: NESTED_ODDS,
+      widening: coverage.widening,
+      ablation: ablationEvidence(snapshot, uni, board),
+    },
     ledger: uni.ledger,
+    excluded72: uni.excluded72,
     checks: check.checks,
     checksum,
     farmCountsPerRow: countVerdicts(board),
